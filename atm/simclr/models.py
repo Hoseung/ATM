@@ -13,18 +13,30 @@ from .utils import save_config_file, accuracy, save_checkpoint
 
 
 class ResNetSimCLR(nn.Module):
+    class Identity(nn.Module):
+       def __init__(self): super().__init__()
+
+       def forward(self, x):
+           return x
 
     def __init__(self, base_model, out_dim):
         super(ResNetSimCLR, self).__init__()
         self.resnet_dict = {"resnet18": models.resnet18(pretrained=False, num_classes=out_dim),
                             "resnet50": models.resnet50(pretrained=False, num_classes=out_dim)}
 
-        self.backbone = self._get_basemodel(base_model) # h == f(.)
-        dim_mlp = self.backbone.fc.in_features
+        base_model = self._get_basemodel(base_model) # h == f(.)
+        
+        base_model._fc = ResNetSimCLR.Identity()
+        self.embedding = base_model
+        dim_mlp = base_model.fc.in_features
 
         # add mlp projection head
         # g(f(.))
-        self.backbone.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.backbone.fc)
+        print("----------------------")
+        print(dim_mlp, out_dim)
+        self.projection = nn.Sequential(nn.Linear(dim_mlp, dim_mlp),
+                                        nn.ReLU(),
+                                        nn.Linear(dim_mlp, out_dim))
 
     def _get_basemodel(self, model_name):
         try:
@@ -36,7 +48,7 @@ class ResNetSimCLR(nn.Module):
             return model
 
     def forward(self, x):
-        return self.backbone(x)
+        return self.projection(self.embedding(x))
 
 class SimCLR(object):
     def __init__(self, *args, **kwargs):

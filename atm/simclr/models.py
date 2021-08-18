@@ -2,7 +2,7 @@ import os
 import sys 
 import logging
 import torch
-import torchvision.models as models
+from .resnet import resnet50, resnet18
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -16,8 +16,12 @@ class ResNetSimCLR(nn.Module):
 
     def __init__(self, base_model, out_dim):
         super(ResNetSimCLR, self).__init__()
-        self.resnet_dict = {"resnet18": models.resnet18(pretrained=False, num_classes=out_dim),
-                            "resnet50": models.resnet50(pretrained=False, num_classes=out_dim)}
+        self.resnet_dict = {"resnet18": resnet18(pretrained=False, 
+                                                        num_classes=out_dim,
+                                                        num_channels=1),
+                            "resnet50": resnet50(pretrained=False,
+                                                        num_classes=out_dim,
+                                                        num_channels=1)}
 
         self.backbone = self._get_basemodel(base_model) # h == f(.)
         dim_mlp = self.backbone.fc.in_features

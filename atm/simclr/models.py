@@ -1,6 +1,7 @@
 import os 
 import sys 
 import logging
+import numpy as np
 import torch
 from .resnet import resnet50, resnet18
 import torch.nn as nn
@@ -111,6 +112,10 @@ class SimCLR(object):
                     logits, labels = self.info_nce_loss(features)
                     loss = self.criterion(logits, labels)
                     ################################
+                print("feature min max", 
+                        np.mean([ff.cpu().detach().min() for ff in features]),
+                        np.mean([ff.cpu().detach().max() for ff in features]))
+                print("current loss", loss)
                     
 
                 self.optimizer.zero_grad()

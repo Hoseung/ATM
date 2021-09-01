@@ -45,13 +45,16 @@ class TonemapImageDataset(VisionDataset):
         """
         For super
         """
-        image, _segmap, weight = self._array[idx]['data']
-        image[~_segmap.astype(bool)] = 0#np.nan # Is it OK to have nan?
+        image, _segmap = self._array[idx]['image'],self._array[idx]['mask']#,self._array[idx]['weight']
+        image[~_segmap] = 0#np.nan # Is it OK to have nan?
         image[image < 0] = 0
 
         image = self._to_8bit(self._apply_tm(image))
         image = Image.fromarray(image)
-        label = self.img_labels[idx]
+        try:
+            label = self.img_labels[idx]
+        except:
+            label = self._array[idx]['tt']
         
         if self.transform is not None:
             image = self.transform(image)

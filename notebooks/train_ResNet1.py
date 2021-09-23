@@ -37,11 +37,11 @@ model.to(device)
 
 #print(model)
 
-dataset = 'stl10'
+dataset = 'cifar10'
 
 if dataset == 'cifar10':
     img_size = 32
-    batch_size = 128
+    batch_size = 256
     lr = 0.001
 elif dataset == 'stl10':
     img_size = 96
@@ -50,14 +50,16 @@ elif dataset == 'stl10':
 
 transform_train = transforms.Compose(
     [transforms.RandomCrop(img_size),
+     transforms.RandomHorizontalFlip(p=0.5),
      transforms.ToTensor(),
      transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True)),
-     transforms.Normalize((0.5), (0.5))])
+     transforms.Normalize((0.5), (0.2))])
 
 transform_test = transforms.Compose(
-    [transforms.ToTensor(),
+    [transforms.RandomHorizontalFlip(p=0.5),
+     transforms.ToTensor(),
      transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True)),
-     transforms.Normalize((0.5), (0.5))])
+     transforms.Normalize((0.5), (0.2))])
 
 n_epochs=400
 
@@ -95,7 +97,7 @@ config = Config(
     testloader = test_loader,
     model = model,
     device = device,
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr),
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=0.0008),
     criterion= nn.CrossEntropyLoss().to(device),
     globaliter = 0
 )
@@ -174,7 +176,7 @@ class train_test():
                     test_loss += self.criterion(outputs, labels).item()
                     acc.append(100 * correct/total)
 
-                print('\nTest set : Average loss:{:.4f}, Accuracy: {}/{}({:.0f}%)\n'.format(
+                print('\nTest set : Average loss:{:.4f}, Accuracy: {}/{}({:.5f}%)\n'.format(
                     test_loss, correct, total, 100 * correct/total
                 ))
                 #with test_summary_writer.as_default():
@@ -191,47 +193,6 @@ class train_test():
         'state_dict': model.state_dict(),
         'optimizer': config.optimizer.state_dict(),
         }, is_best=False, filename=os.path.join(tb.log_dir, checkpoint_name+f'{epoch}.pth'))
-
-"""
-
-for epoch in range(n_epochs):
-    running_loss = 0.0
-    total_correct = 0.0
-    for data in trainloader:
-        # get the inputs; data is a list of [inputs, labels]
-        inputs, labels = data[0].to(device), data[1].to(device)
-
-        # zero the parameter gradients
-        optimizer.zero_grad()
-
-        # forward + backward + optimize
-        preds = model(inputs)
-        loss = criterion(preds, labels)
-        loss.backward()
-        optimizer.step()
-
-        # print statistics
-        running_loss += loss.item()
-        total_correct+= get_num_correct(preds, labels)
-    
-    #print('[%d, %5d] loss: %.4f' %
-    #      (epoch + 1, running_loss / 2000))
-    if epoch % 100 == 99:    # print every 2000 mini-batches
-        save_checkpoint({
-        'epoch': n_epochs,
-        'state_dict': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        }, is_best=False, filename=os.path.join('./', checkpoint_name+f'{epoch}.pth'))
-
-    tb.add_scalar("Loss", running_loss, epoch)
-    tb.add_scalar("Correct", total_correct, epoch)
-    tb.add_scalar("Accuracy", total_correct/ len(trainset), epoch)
-
-    #tb.add_histogram("conv1.bias", model.conv1.bias, epoch)
-    #tb.add_histogram("conv1.weight", model.conv1.weight, epoch)
-    #tb.add_histogram("conv2.bias", model.conv2.bias, epoch)
-    #tb.add_histogram("conv2.weight", model.conv2.weight, epoch)        
-"""
 
 ready_to_train=train_test(config)
 lr_sche = optim.lr_scheduler.StepLR(config.optimizer, step_size=5000, gamma=0.5) # 20 step마다 lr조정

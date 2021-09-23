@@ -15,14 +15,14 @@ from .utils import save_config_file, accuracy, save_checkpoint
 
 class ResNetSimCLR(nn.Module):
 
-    def __init__(self, base_model, out_dim):
+    def __init__(self, base_model, out_dim, num_channels=1):
         super(ResNetSimCLR, self).__init__()
         self.resnet_dict = {"resnet18": resnet18(pretrained=False, 
                                                         num_classes=out_dim,
-                                                        num_channels=1),
+                                                        num_channels=num_channels),
                             "resnet50": resnet50(pretrained=False,
                                                         num_classes=out_dim,
-                                                        num_channels=1)}
+                                                        num_channels=num_channels)}
 
         self.backbone = self._get_basemodel(base_model) # h == f(.)
         dim_mlp = self.backbone.fc.in_features
@@ -112,9 +112,9 @@ class SimCLR(object):
                     logits, labels = self.info_nce_loss(features)
                     loss = self.criterion(logits, labels)
                     ################################
-                print("feature min max", 
-                        np.mean([ff.cpu().detach().min() for ff in features]),
-                        np.mean([ff.cpu().detach().max() for ff in features]))
+                #print("feature min max", 
+                #        np.mean([ff.cpu().detach().min() for ff in features]),
+                 #       np.mean([ff.cpu().detach().max() for ff in features]))
                 print("current loss", loss)
                     
 

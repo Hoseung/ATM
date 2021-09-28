@@ -16,7 +16,8 @@ setup(
     classifiers=['Programming Language :: Python :: 3'],
     python_requires='>=3.8',
     install_requires=['numpy', 'scikit-image', 'astropy', 'sklearn', 'matplotlib',
-                      'colour-science', 'ax-platform', 'photutils', 'tqdm'],
+                      'colour-science', 'ax-platform', 'photutils', 'tqdm', 
+                      'tensorflow', 'pyyaml'],
     extras_require={'dev':[''],
                     'test':['']},
 )

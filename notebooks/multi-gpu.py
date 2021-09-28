@@ -25,7 +25,7 @@ args.workers=1
 args.epochs=300 
 
 if do_parallel:
-    args.batch_size = 512
+    args.batch_size = 128
 else:
     args.batch_size = 256
 
@@ -37,7 +37,7 @@ args.out_dim=10
 args.log_every_n_steps=100
 args.temperature=0.07
 args.n_views = 2
-args.gpu_index=0
+#args.gpu_index=0
 args.device='cuda' if torch.cuda.is_available() else 'cpu'
 
 print("Using device:", args.device)
@@ -53,7 +53,7 @@ if not args.disable_cuda and torch.cuda.is_available():
     cudnn.benchmark = True
 else:
     args.device = torch.device('cpu')
-    args.gpu_index = -1
+    #args.gpu_index = -1
 
 
 from PIL import Image
@@ -341,6 +341,7 @@ class SimCLR(object):
             'arch': self.args.arch,
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
+            'batchsize': self.args.batch_size,
         }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
         logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
 
@@ -348,15 +349,6 @@ class SimCLR(object):
 
 #def main():
 #args = parser.parse_args()
-assert args.n_views == 2, "Only two view training is supported. Please use --n-views 2."
-# check if gpu training is available
-if not args.disable_cuda and torch.cuda.is_available():
-    args.device = torch.device('cuda')
-    cudnn.deterministic = True
-    cudnn.benchmark = True
-else:
-    args.device = torch.device('cpu')
-    args.gpu_index = -1
 
 #dataset = ContrastiveLearningDataset(args.data)
 #train_dataset = dataset.get_dataset(args.dataset_name, args.n_views)
@@ -401,9 +393,9 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(trai
 
 np.seterr(divide='ignore')
 #  It’s a no-op if the 'gpu_index' argument is a negative integer or None.
-with torch.cuda.device(args.gpu_index):
-    simclr = SimCLR(model=model, optimizer=optimizer, scheduler=scheduler, args=args)
-    simclr.train(train_loader)
+#with torch.cuda.device(args.gpu_index):
+simclr = SimCLR(model=model, optimizer=optimizer, scheduler=scheduler, args=args)
+simclr.train(train_loader)
         
 #main()
 

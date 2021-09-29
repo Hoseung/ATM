@@ -6,7 +6,6 @@ import torch.backends.cudnn as cudnn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import torchvision
 from torchvision.transforms import transforms
-#from torchvision import models
 
 import atm
 import atm.simclr as simclr
@@ -14,15 +13,29 @@ import atm.simclr.resnet as models
 
 import argparse 
 
-do_parallel = True
+
+import logging
+import os
+import sys
+import yaml
+
+import torch.nn.functional as F
+from torch.cuda.amp import GradScaler, autocast
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+
+# Setup
+do_parallel = False
 
 args = argparse.Namespace()
 
 args.data='./datasets' 
-#args.dataset_name='cifar10'
-args.arch='resnet50'
+args.dataset_name=['cifar10', 'stl10', 'nair'][0]
+args.arch='resnet18'
 args.workers=1
-args.epochs=300 
+args.epochs=200
+args.img_size =128
+args.n_channels=1
 
 if do_parallel:
     args.batch_size = 128
@@ -37,13 +50,9 @@ args.out_dim=10
 args.log_every_n_steps=100
 args.temperature=0.07
 args.n_views = 2
-#args.gpu_index=0
 args.device='cuda' if torch.cuda.is_available() else 'cpu'
 
 print("Using device:", args.device)
-
-img_size =128
-
 
 assert args.n_views == 2, "Only two view training is supported. Please use --n-views 2."
 # check if gpu training is available
@@ -61,7 +70,6 @@ from typing import Any, Callable, Optional, Tuple
 from torchvision.datasets.vision import VisionDataset
 from functools import partial
 from astrobf.tmo import Mantiuk_Seidel
-
 
 class ContrastiveLearningViewGenerator(object):
     """Take two random crops of one image as the query and key."""
@@ -129,62 +137,15 @@ class TonemapImageDataset(VisionDataset):
             
         return image, target
 
-    
-class ContrastiveLearningDataset():
-    def __init__(self):
-        pass
-    
-    @staticmethod
-    def get_simclr_pipeline_transform(size, s=1, n_channels=3):
-        """Return a set of data augmentation transformations as described in the SimCLR paper."""
-        color_jitter = transforms.ColorJitter(0.8 * s, 0.8 * s, 0.8 * s, 0.2 * s)
-        data_transforms = transforms.Compose([transforms.RandomResizedCrop(size=size),
-                                              transforms.RandomHorizontalFlip(),
-                                              transforms.RandomApply([color_jitter], p=0.8),
-                                              transforms.RandomGrayscale(p=0.2),
-                                              GaussianBlur(kernel_size=int(0.1 * size)),
-                                              transforms.ToTensor()])
-        if n_channels == 1:
-            _transform = _transform + [transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True))]
-            
-        return data_transforms
-
-    def get_dataset(self, name, n_views, n_channels=3):
-        return TonemapImageDataset(all_gals, partial(Mantiuk_Seidel, **tmo_params),
-                                labels=cat['TT'].to_numpy(),
-                                train=True, 
-                                transform=ContrastiveLearningViewGenerator(
-                                    self.get_simclr_pipeline_transform(img_size, n_channels=1)
-                                ))
-
-
-import pickle
-
-ddir = "../../tonemap/bf_data/Nair_and_Abraham_2010/"
-
-fn = ddir + "all_gals.pickle"
-all_gals = pickle.load(open(fn, "rb"))
-
-all_gals = all_gals[1:] # Why the first galaxy image is NaN?
-
-good_gids = np.array([gal['img_name'] for gal in all_gals])
-
-from astrobf.utils.misc import load_Nair
-cat_data = load_Nair(ddir + "catalog/table2.dat")
-# pd dataframe
-
-cat = cat_data[cat_data['ID'].isin(good_gids)]
-
-tmo_params = {'b': 6.0,  'c': 3.96, 'dl': 9.22, 'dh': 2.45}
-
-
-
+from atm.simclr.utils import save_config_file, accuracy, save_checkpoint
 class ResNetSimCLR(nn.Module):
 
-    def __init__(self, base_model, out_dim):
+    def __init__(self, base_model, out_dim, n_channels=3):
         super(ResNetSimCLR, self).__init__()
-        self.resnet_dict = {"resnet18": models.resnet18(pretrained=False, num_classes=out_dim, num_channels=1),
-                            "resnet50": models.resnet50(pretrained=False, num_classes=out_dim, num_channels=1)}
+        self.resnet_dict = {"resnet18": models.resnet18(pretrained=False, num_classes=out_dim,
+                                                        num_channels=n_channels),
+                            "resnet50": models.resnet50(pretrained=False, num_classes=out_dim,
+                                                        num_channels=n_channels)}
 
         self.backbone = self._get_basemodel(base_model)
         dim_mlp = self.backbone.fc.in_features
@@ -205,57 +166,17 @@ class ResNetSimCLR(nn.Module):
         return self.backbone(x)
 
 
-import logging
-import os
-import sys
-import yaml
-
-import torch
-import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-#from utils import save_config_file, accuracy, save_checkpoint
-
-
-
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
-
-
-def save_config_file(model_checkpoints_folder, args):
-    if not os.path.exists(model_checkpoints_folder):
-        os.makedirs(model_checkpoints_folder)
-        with open(os.path.join(model_checkpoints_folder, 'config.yml'), 'w') as outfile:
-            yaml.dump(args, outfile, default_flow_style=False)
-
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
-
+import time
 class SimCLR(object):
-
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
         self.model = kwargs['model'].to(self.args.device)
         self.optimizer = kwargs['optimizer']
         self.scheduler = kwargs['scheduler']
-        self.writer = SummaryWriter()
+        
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        log_dir = './runs/'+timestr + f"_{self.args.dataset_name}_{self.args.arch}_{self.args.n_channels}_{self.args.batch_size}"
+        self.writer = SummaryWriter(log_dir=log_dir)
         logging.basicConfig(filename=os.path.join(self.writer.log_dir, 'training.log'), level=logging.DEBUG)
         self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
 
@@ -268,9 +189,6 @@ class SimCLR(object):
         features = F.normalize(features, dim=1)
 
         similarity_matrix = torch.matmul(features, features.T)
-        # assert similarity_matrix.shape == (
-        #     self.args.n_views * self.args.batch_size, self.args.n_views * self.args.batch_size)
-        # assert similarity_matrix.shape == labels.shape
 
         # discard the main diagonal from both: labels and similarities matrix
         mask = torch.eye(labels.shape[0], dtype=torch.bool).to(self.args.device)
@@ -290,7 +208,7 @@ class SimCLR(object):
         logits = logits / self.args.temperature
         return logits, labels
 
-    def train(self, train_loader):
+    def train(self, train_loader, checkpoint_freq=100):
 
         scaler = GradScaler(enabled=self.args.fp16_precision)
 
@@ -332,53 +250,73 @@ class SimCLR(object):
             if epoch_counter >= 10:
                 self.scheduler.step()
             logging.debug(f"Epoch: {epoch_counter}\tLoss: {loss}\tTop1 accuracy: {top1[0]}")
+            
+            if epoch_counter % checkpoint_freq == checkpoint_freq -1 or epoch_counter == self.args.epochs-1:
+                # save model checkpoints
+                checkpoint_name = 'checkpoint_{:04d}.pth.tar'.format(self.args.epochs)
+                save_checkpoint({
+                    'epoch': self.args.epochs,
+                    'arch': self.args.arch,
+                    'dataset':self.args.dataset_name,
+                    'state_dict': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                    'batchsize': self.args.batch_size,
+                }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
+                logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
 
         logging.info("Training has finished.")
-        # save model checkpoints
-        checkpoint_name = 'checkpoint_{:04d}.pth.tar'.format(self.args.epochs)
-        save_checkpoint({
-            'epoch': self.args.epochs,
-            'arch': self.args.arch,
-            'state_dict': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-            'batchsize': self.args.batch_size,
-        }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
-        logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
+            
 
-
-
-#def main():
-#args = parser.parse_args()
-
-#dataset = ContrastiveLearningDataset(args.data)
-#train_dataset = dataset.get_dataset(args.dataset_name, args.n_views)
 def get_simclr_pipeline_transform(size, s=1, n_channels=3):
-    """Return a set of data augmentation transformations as described in the SimCLR paper."""
-    #color_jitter = transforms.ColorJitter(0.8 * s, 0.8 * s, 0.8 * s, 0.2 * s)
-    _transforms = [transforms.RandomResizedCrop(size=size),
-                  transforms.RandomHorizontalFlip(),
-                  #transforms.RandomApply([color_jitter], p=0.8), <- 3 channel이어야만 사용 가능
-                  #transforms.RandomGrayscale(p=0.2),
-                  #GaussianBlur(kernel_size=int(0.1 * size)),
-                  transforms.ToTensor()]
-    if n_channels == 1:
-        _transforms = _transforms + [transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True))]
-
+    """Return a set of data augmentation transformations as described in the SimCLR paper.
+       What about normalization?????"""
+    if n_channels == 3:
+        color_jitter = transforms.ColorJitter(0.8 * s, 0.8 * s, 0.8 * s, 0.2 * s)
+        _transforms = [transforms.RandomResizedCrop(size=size),
+                      transforms.RandomHorizontalFlip(),
+                      transforms.RandomApply([color_jitter], p=0.8),
+                      transforms.RandomGrayscale(p=0.2),
+                      GaussianBlur(kernel_size=int(0.1 * size)),
+                      transforms.ToTensor()]
+    elif n_channels == 1:
+        _transforms = [transforms.RandomResizedCrop(size=size),
+                      transforms.RandomHorizontalFlip(),
+                      #GaussianBlur(kernel_size=int(0.1 * size)),
+                      transforms.ToTensor(),
+                      transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True))]
+    
     return transforms.Compose(_transforms)
+
+
+# Load data   
+import pickle
+from astrobf.utils.misc import load_Nair
+
+ddir = "../../tonemap/bf_data/Nair_and_Abraham_2010/"
+fn = ddir + "all_gals.pickle"
+all_gals = pickle.load(open(fn, "rb"))
+#all_gals = all_gals[1:] # Why the first galaxy image is NaN?
+good_gids = np.array([gal['img_name'] for gal in all_gals])
+
+# Catalog
+cat_data = load_Nair(ddir + "catalog/table2.dat")
+cat = cat_data[cat_data['ID'].isin(good_gids)] # pd
+
+
+tmo_params = {'b': 6.0,  'c': 3.96, 'dl': 9.22, 'dh': 2.45}
 
 train_dataset = TonemapImageDataset(all_gals, partial(Mantiuk_Seidel, **tmo_params),
                                     labels=cat['TT'].to_numpy(),
                                     train=True, 
                                     transform=ContrastiveLearningViewGenerator(
-                                        get_simclr_pipeline_transform(128, n_channels=1)
+                                        get_simclr_pipeline_transform(128, n_channels=args.n_channels)
                                     ))
-
 
 train_loader = torch.utils.data.DataLoader(
     train_dataset, batch_size=args.batch_size, shuffle=True,
     num_workers=args.workers, pin_memory=True, drop_last=True)
 
-model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim)
+model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim, n_channels=args.n_channels)
 if do_parallel:
     model = nn.DataParallel(model)#, output_device=1) # split works into different devices. 1 deals with the output, 0 does the rest.
     # The commented part causes an error:
@@ -396,8 +334,3 @@ np.seterr(divide='ignore')
 #with torch.cuda.device(args.gpu_index):
 simclr = SimCLR(model=model, optimizer=optimizer, scheduler=scheduler, args=args)
 simclr.train(train_loader)
-        
-#main()
-
-
-

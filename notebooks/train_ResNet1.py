@@ -7,46 +7,58 @@ import torch.backends.cudnn as cudnn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import torchvision
 from torchvision.transforms import transforms
+import argparse
+
 from atm.simclr import resnet
 from torch.utils.tensorboard import SummaryWriter
 #from tensorflow import summary
+from atm.simclr.utils import save_config_file, accuracy, save_checkpoint
+
+#def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+#    torch.save(state, filename)
+#    if is_best:
+#        shutil.copyfile(filename, 'model_best.pth.tar')
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+args = argparse.Namespace()
 
+args.data='./datasets'
+args.dataset=['cifar10', 'stl10', 'nair'][0]
+args.arch='resnet18'
+args.workers=1
+args.epochs=200
+args.img_size =128
+args.n_channels=1
+args.weight_decay=0.0008
 
 def get_num_correct(preds, labels):
     return preds.argmax(dim=1).eq(labels).sum().item()
 
 # check if gpu training is available
 if torch.cuda.is_available():
-    device = torch.device('cuda')
+    args.device = torch.device('cuda')
     cudnn.deterministic = True
     cudnn.benchmark = True
 else:
-    device = torch.device('cpu')
+    args.device = torch.device('cpu')
 
-print("Using...", device)
+print("Using...", args.device)
 
 
 model = resnet.resnet50(pretrained=False, num_classes=10)
-model.to(device)
+model.to(args.device)
 
 #print(model)
 
-dataset = 'cifar10'
 
-if dataset == 'cifar10':
+if args.dataset == 'cifar10':
     img_size = 32
-    batch_size = 256
-    lr = 0.001
-elif dataset == 'stl10':
+    args.batch_size = 256
+    args.lr = 0.001
+elif args.dataset == 'stl10':
     img_size = 96
-    batch_size = 64
-    lr = 0.001
+    args.batch_size = 64
+    args.lr = 0.001
 
 transform_train = transforms.Compose(
     [transforms.RandomCrop(img_size),
@@ -56,34 +68,33 @@ transform_train = transforms.Compose(
      transforms.Normalize((0.5), (0.2))])
 
 transform_test = transforms.Compose(
-    [transforms.RandomHorizontalFlip(p=0.5),
-     transforms.ToTensor(),
+    #[transforms.RandomHorizontalFlip(p=0.5),
+     [transforms.ToTensor(),
      transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True)),
      transforms.Normalize((0.5), (0.2))])
 
-n_epochs=400
 
-if dataset == 'cifar10':
+if args.dataset == 'cifar10':
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                         download=True, transform=transform_train)
 
     testset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                        download=True, transform=transform_test)
-elif dataset == 'stl10':
+elif args.dataset == 'stl10':
     trainset = torchvision.datasets.STL10(root='./data', split='train',
                                         download=True, transform=transform_train)
     testset = torchvision.datasets.STL10(root='./data', split='test',
                                        download=True, transform=transform_test)
 
 
-train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
+train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                           shuffle=True, num_workers=2)
 
-test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
+test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
                                          shuffle=False, num_workers=2)
 
 
-checkpoint_name=f'Resnet_ch1_{dataset}_bn{batch_size}_{n_epochs}_'
+checkpoint_name=f'Resnet_ch1_{args.dataset}_bn{args.batch_size}_{args.epochs}_'
 
 import torch.optim as optim
 
@@ -96,12 +107,11 @@ config = Config(
     trainloader = train_loader,
     testloader = test_loader,
     model = model,
-    device = device,
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=0.0008),
-    criterion= nn.CrossEntropyLoss().to(device),
+    device = args.device,
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay),
+    criterion= nn.CrossEntropyLoss().to(args.device),
     globaliter = 0
 )
-
 
 
 #criterion = nn.CrossEntropyLoss()
@@ -109,12 +119,8 @@ config = Config(
 
 
 # do Training
-tb = SummaryWriter() 
-print(tb.log_dir)
 
-#train_summary_writer = summary.create_file_writer(train_log_dir)
-#test_summary_writer =  summary.create_file_writer(test_log_dir)
-
+import time
 class train_test():
     def __init__(self, config):
         self.trainloader = config.trainloader
@@ -124,6 +130,9 @@ class train_test():
         self.optimizer = config.optimizer
         self.criterion = config.criterion
         self.globaliter = config.globaliter
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        log_dir = './runs/'+timestr + f"_{args.dataset}_{args.arch}_{args.n_channels}_{args.batch_size}"
+        self.writer = SummaryWriter(log_dir=log_dir)
 
     def train(self, epochs, log_interval):
         self.model.train()
@@ -156,7 +165,7 @@ class train_test():
 
                     #with train_summary_writer.as_default():
                     #    summary.scalar('train_loss', loss.item() , step = self.globaliter)
-                    tb.add_scalar('train_loss', loss.item() , global_step = self.globaliter)
+                self.writer.add_scalar('train_loss', loss.item() , global_step = self.globaliter)
             # evaluate
             with torch.no_grad():
                 self.model.eval()
@@ -176,28 +185,24 @@ class train_test():
                     test_loss += self.criterion(outputs, labels).item()
                     acc.append(100 * correct/total)
 
-                print('\nTest set : Average loss:{:.4f}, Accuracy: {}/{}({:.5f}%)\n'.format(
-                    test_loss, correct, total, 100 * correct/total
-                ))
-                #with test_summary_writer.as_default():
-                #    summary.scalar('test_loss', test_loss , step = self.globaliter)
-                #    summary.scalar('accuracy', 100 * correct/total , step = self.globaliter)
-                tb.add_scalar('test_loss', test_loss , global_step = self.globaliter)
-                tb.add_scalar('accuracy', 100 * correct/total, global_step = self.globaliter)
+            print('\nTest set : Average loss:{:.4f}, Accuracy: {}/{}({:.5f}%)\n'.format(
+                  test_loss, correct, total, 100 * correct/total))
+            self.writer.add_scalar('test_loss', test_loss , global_step = self.globaliter)
+            self.writer.add_scalar('accuracy', 100 * correct/total, global_step = self.globaliter)
 
             lr_sche.step()
 
-        tb.close()
         save_checkpoint({
-        'epoch': n_epochs,
+        'epoch': args.epochs,
         'state_dict': model.state_dict(),
         'optimizer': config.optimizer.state_dict(),
-        }, is_best=False, filename=os.path.join(tb.log_dir, checkpoint_name+f'{epoch}.pth'))
+        }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name+f'{epoch}.pth'))
+        self.writer.close()
 
 ready_to_train=train_test(config)
 lr_sche = optim.lr_scheduler.StepLR(config.optimizer, step_size=5000, gamma=0.5) # 20 step마다 lr조정
 log_interval = 58
 
-ready_to_train.train(n_epochs, log_interval)
+ready_to_train.train(args.epochs, log_interval)
 
 

@@ -6,10 +6,10 @@ from functools import partial
 import numpy as np
 
 class TonemapImageDataset(VisionDataset):
-    def __init__(self, 
-                 data_array, 
+    def __init__(self,
+                 data_array,
                  tmo,
-                 labels: Optional = None, 
+                 labels: Optional = None,
                  train: bool=True,
                  transform: Optional[Callable] = None,
                  target_transform: Optional[Callable] = None,):
@@ -36,31 +36,30 @@ class TonemapImageDataset(VisionDataset):
 
         image = (image - image.min())/image.ptp()
         image *= 255
-        return image.astype('uint8')        
-    
+        return image.astype('uint8')
+
     def __len__(self) -> int:
         return len(self._array)
-    
+
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
         """
         For super
         """
-        image, _segmap = self._array[idx]['image'],self._array[idx]['mask']#,self._array[idx]['weight']
-        image[~_segmap] = 0#np.nan # Is it OK to have nan?
+        image, _segmap, weight = self._array[idx]['data']
+        image[~_segmap.astype(bool)] = 0#np.nan # Is it OK to have nan?
         image[image < 0] = 0
 
         image = self._to_8bit(self._apply_tm(image))
         image = Image.fromarray(image)
-        try:
-            label = self.img_labels[idx]
-        except:
-            label = self._array[idx]['tt']
-        
+        target = self.img_labels[idx]
+
         if self.transform is not None:
             image = self.transform(image)
-            
-        return image, label
 
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return image, target
 
     
 class TonemapImageDatasetPair(TonemapImageDataset):

@@ -20,9 +20,9 @@ args = argparse.Namespace()
 
 args.data='./datasets' 
 args.dataset_name='cifar10'
-args.arch='resnet50'
+args.arch='resnet18'
 args.workers=1
-args.epochs=300 
+args.epochs=100 
 args.batch_size=256 
 args.lr=3e-4
 args.weight_decay=1e-4

@@ -7,16 +7,29 @@ import torch.backends.cudnn as cudnn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import torchvision
 from torchvision.transforms import transforms
+import argparse
+
 from atm.simclr import resnet
 from torch.utils.tensorboard import SummaryWriter
 #from tensorflow import summary
+from atm.simclr.utils import save_config_file, accuracy, save_checkpoint
+
+#def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+#    torch.save(state, filename)
+#    if is_best:
+#        shutil.copyfile(filename, 'model_best.pth.tar')
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+args = argparse.Namespace()
 
+args.data='./datasets'
+args.dataset=['cifar10', 'stl10', 'nair'][0]
+args.arch='resnet50'
+args.workers=1
+args.epochs=200
+args.img_size =128
+args.n_channels=3
+args.weight_decay=0.0008
 
 def get_num_correct(preds, labels):
     return preds.argmax(dim=1).eq(labels).sum().item()
@@ -33,12 +46,12 @@ print("Using...", device)
 
 
 n_channel = 3
-n_epochs=400
+n_epochs=200
 
 
 #print(model)
 
-dataset = 'stl10'
+dataset = 'cifar10'
 
 if dataset == 'cifar10':
     img_size = 32

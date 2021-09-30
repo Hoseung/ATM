@@ -24,7 +24,7 @@ args = argparse.Namespace()
 
 args.data='./datasets'
 args.dataset=['cifar10', 'stl10', 'nair'][0]
-args.arch='resnet18'
+args.arch='resnet50'
 args.workers=1
 args.epochs=200
 args.img_size =128
@@ -133,6 +133,7 @@ class train_test():
         timestr = time.strftime("%Y%m%d-%H%M%S")
         log_dir = './runs/'+timestr + f"_{args.dataset}_{args.arch}_{args.n_channels}_{args.batch_size}"
         self.writer = SummaryWriter(log_dir=log_dir)
+        print("log dir:", self.writer.log_dir)
 
     def train(self, epochs, log_interval):
         self.model.train()

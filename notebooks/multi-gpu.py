@@ -30,23 +30,23 @@ do_parallel = False
 args = argparse.Namespace()
 
 args.data='./datasets' 
-args.dataset_name=['cifar10', 'stl10', 'nair'][0]
+args.dataset_name=['cifar10', 'stl10', 'nair'][2]
 args.arch='resnet18'
 args.workers=1
-args.epochs=200
+args.epochs=400
 args.img_size =128
 args.n_channels=1
 
 if do_parallel:
     args.batch_size = 128
 else:
-    args.batch_size = 256
+    args.batch_size =1024
 
 args.lr=0.02
 args.weight_decay=0.0005
 args.disable_cuda=False
 args.fp16_precision=True
-args.out_dim=10
+args.out_dim=[128,10][0]
 args.log_every_n_steps=100
 args.temperature=0.07
 args.n_views = 2
@@ -177,6 +177,7 @@ class SimCLR(object):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         log_dir = './runs/'+timestr + f"_{self.args.dataset_name}_{self.args.arch}_{self.args.n_channels}_{self.args.batch_size}"
         self.writer = SummaryWriter(log_dir=log_dir)
+        print("log dir:", self.writer.log_dir)
         logging.basicConfig(filename=os.path.join(self.writer.log_dir, 'training.log'), level=logging.DEBUG)
         self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
 
@@ -282,8 +283,8 @@ def get_simclr_pipeline_transform(size, s=1, n_channels=3):
         _transforms = [transforms.RandomResizedCrop(size=size),
                       transforms.RandomHorizontalFlip(),
                       #GaussianBlur(kernel_size=int(0.1 * size)),
-                      transforms.ToTensor(),
-                      transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True))]
+                      transforms.ToTensor()]#,
+                      #transforms.Lambda(lambda x: x.mean(dim=0, keepdim=True))]
     
     return transforms.Compose(_transforms)
 
@@ -317,6 +318,7 @@ train_loader = torch.utils.data.DataLoader(
     num_workers=args.workers, pin_memory=True, drop_last=True)
 
 model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim, n_channels=args.n_channels)
+ # SimCLR때는 out_dim = 128이므로, ResNet에 transfer할 때 마지막 fc를 10개 짜리를 새로 붙인 뒤 다시 training 해줘야함.
 if do_parallel:
     model = nn.DataParallel(model)#, output_device=1) # split works into different devices. 1 deals with the output, 0 does the rest.
     # The commented part causes an error:

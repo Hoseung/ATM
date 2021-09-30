@@ -43,21 +43,23 @@ class ResNetSimCLR(nn.Module):
     def forward(self, x):
         return self.backbone(x)
 
+
+import time
 class SimCLR(object):
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
-        self.model = kwargs['model'].to(self.args.device) # backbone model
+        self.model = kwargs['model'].to(self.args.device)
         self.optimizer = kwargs['optimizer']
         self.scheduler = kwargs['scheduler']
-        self.writer = SummaryWriter()
-        # This is the only logger in SimCLR. 
+        
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        log_dir = './runs/'+timestr + f"_{self.args.dataset_name}_{self.args.arch}_{self.args.n_channels}_{self.args.batch_size}"
+        self.writer = SummaryWriter(log_dir=log_dir)
+        print("log dir:", self.writer.log_dir)
         logging.basicConfig(filename=os.path.join(self.writer.log_dir, 'training.log'), level=logging.DEBUG)
-        self.criterion = nn.CrossEntropyLoss().to(self.args.device)
+        self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
 
     def info_nce_loss(self, features):
-        """
-        
-        """
 
         labels = torch.cat([torch.arange(self.args.batch_size) for i in range(self.args.n_views)], dim=0)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
@@ -66,9 +68,6 @@ class SimCLR(object):
         features = F.normalize(features, dim=1)
 
         similarity_matrix = torch.matmul(features, features.T)
-        # assert similarity_matrix.shape == (
-        #     self.args.n_views * self.args.batch_size, self.args.n_views * self.args.batch_size)
-        # assert similarity_matrix.shape == labels.shape
 
         # discard the main diagonal from both: labels and similarities matrix
         mask = torch.eye(labels.shape[0], dtype=torch.bool).to(self.args.device)
@@ -88,35 +87,27 @@ class SimCLR(object):
         logits = logits / self.args.temperature
         return logits, labels
 
-    def train(self, train_loader):
+    def train(self, train_loader, checkpoint_freq=100):
 
-        scaler = GradScaler(enabled=self.args.fp16_precision) #AMP
+        scaler = GradScaler(enabled=self.args.fp16_precision)
 
         # save config file
-        save_config_file(self.writer.log_dir, self.args) #yaml.dump(args)
+        save_config_file(self.writer.log_dir, self.args)
 
         n_iter = 0
         logging.info(f"Start SimCLR training for {self.args.epochs} epochs.")
         logging.info(f"Training with gpu: {self.args.disable_cuda}.")
 
         for epoch_counter in range(self.args.epochs):
-            # tqdm = progressbar generator
             for images, _ in tqdm(train_loader):
                 images = torch.cat(images, dim=0)
+
                 images = images.to(self.args.device)
 
-                # autocast <- AMP
                 with autocast(enabled=self.args.fp16_precision):
                     features = self.model(images)
-                    ################################
                     logits, labels = self.info_nce_loss(features)
                     loss = self.criterion(logits, labels)
-                    ################################
-                #print("feature min max", 
-                #        np.mean([ff.cpu().detach().min() for ff in features]),
-                 #       np.mean([ff.cpu().detach().max() for ff in features]))
-                print("current loss", loss)
-                    
 
                 self.optimizer.zero_grad()
 
@@ -138,14 +129,19 @@ class SimCLR(object):
             if epoch_counter >= 10:
                 self.scheduler.step()
             logging.debug(f"Epoch: {epoch_counter}\tLoss: {loss}\tTop1 accuracy: {top1[0]}")
+            
+            if epoch_counter % checkpoint_freq == checkpoint_freq -1 or epoch_counter == self.args.epochs-1:
+                # save model checkpoints
+                checkpoint_name = 'checkpoint_{:04d}.pth.tar'.format(self.args.epochs)
+                save_checkpoint({
+                    'epoch': self.args.epochs,
+                    'arch': self.args.arch,
+                    'dataset':self.args.dataset_name,
+                    'state_dict': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                    'batchsize': self.args.batch_size,
+                }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
+                logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
 
         logging.info("Training has finished.")
-        # save model checkpoints
-        checkpoint_name = 'checkpoint_{:04d}.pth.tar'.format(self.args.epochs)
-        save_checkpoint({
-            'epoch': self.args.epochs,
-            'arch': self.args.arch,
-            'state_dict': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-        }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
-        logging.info(f"Model checkpoint and metadata has been saved at {self.writer.log_dir}.")
+

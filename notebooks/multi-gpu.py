@@ -172,20 +172,23 @@ if args.dataset_name == "nair":
     import pickle
     from astrobf.utils.misc import load_Nair
 
+    tmo_params = {'b': 6.0,  'c': 3.96, 'dl': 9.22, 'dh': 2.45}
+
     ddir = "../../tonemap/bf_data/Nair_and_Abraham_2010/"
     fn = ddir + "all_gals.pickle"
     all_gals = pickle.load(open(fn, "rb"))
-#all_gals = all_gals[1:] # Why the first galaxy image is NaN?
+    all_gals = all_gals[1:] # Why the first galaxy image is NaN?
     good_gids = np.array([gal['img_name'] for gal in all_gals])
 
 # Catalog
     cat_data = load_Nair(ddir + "catalog/table2.dat")
     cat = cat_data[cat_data['ID'].isin(good_gids)] # pd
-
-    tmo_params = {'b': 6.0,  'c': 3.96, 'dl': 9.22, 'dh': 2.45}
+    labels = np.digitize(cat['TT'], np.sort(cat['TT'].unique()), right=True)
+    
+    n_classes = len(np.unique(labels))
 
     train_dataset = TonemapImageDataset(all_gals, partial(Mantiuk_Seidel, **tmo_params),
-                                        labels=cat['TT'].to_numpy(),
+                                        labels=labels,
                                         train=True, 
                                         transform=ContrastiveLearningViewGenerator(
                                             get_simclr_pipeline_transform(args.img_size, n_channels=args.n_channels)

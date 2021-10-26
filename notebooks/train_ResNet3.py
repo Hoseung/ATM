@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# # ResNet 3-channel 
+
 import os
 import numpy as np
 import torch
@@ -14,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 #from tensorflow import summary
 from atm.simclr.utils import save_config_file, accuracy, save_checkpoint
 
-#def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+# def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 #    torch.save(state, filename)
 #    if is_best:
 #        shutil.copyfile(filename, 'model_best.pth.tar')
@@ -49,7 +52,7 @@ n_channel = 3
 n_epochs=200
 
 
-#print(model)
+# print(model)
 
 dataset = 'cifar10'
 

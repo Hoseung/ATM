@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# ATM SimCLR Multi-GPU 버전, Incomplete..
+
 import numpy as np
 import torch
 from torch import nn
@@ -113,7 +116,7 @@ class ResNetSimCLR(nn.Module):
 
 import time
 from atm.simclr.models import SimCLR
-            
+
 
 def get_simclr_pipeline_transform(size, s=1, n_channels=3):
     """Return a set of data augmentation transformations as described in the SimCLR paper."""

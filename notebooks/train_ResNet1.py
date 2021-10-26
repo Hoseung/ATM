@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# # ResNet 1-channel 
+
 import os
 import numpy as np
 import torch
@@ -14,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 #from tensorflow import summary
 from atm.simclr.utils import save_config_file, accuracy, save_checkpoint
 
-#def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+# def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 #    torch.save(state, filename)
 #    if is_best:
 #        shutil.copyfile(filename, 'model_best.pth.tar')
@@ -48,7 +51,7 @@ print("Using...", args.device)
 model = resnet.resnet50(pretrained=False, num_classes=10)
 model.to(args.device)
 
-#print(model)
+# print(model)
 
 
 if args.dataset == 'cifar10':
@@ -114,8 +117,8 @@ config = Config(
 )
 
 
-#criterion = nn.CrossEntropyLoss()
-#optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+# criterion = nn.CrossEntropyLoss()
+# optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 
 # do Training
